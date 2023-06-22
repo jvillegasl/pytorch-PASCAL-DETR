@@ -1,13 +1,13 @@
 {
-    "name": "Mnist_LeNet",
+    "name": "Pascal_DETR",
     "n_gpu": 1,
 
     "arch": {
-        "type": "MnistModel",
+        "type": "DETR",
         "args": {}
     },
     "data_loader": {
-        "type": "MnistDataLoader",
+        "type": "PascalDataLoader",
         "args": {
             "data_dir": "data/",
             "batch_size": 128,
