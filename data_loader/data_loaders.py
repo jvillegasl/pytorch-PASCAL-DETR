@@ -1,16 +1,54 @@
+import torch
+from torch.utils.data.dataloader import default_collate
 from torchvision import datasets, transforms
+
 from base import BaseDataLoader
+from collate_fn import collate_fn
 
 
-class MnistDataLoader(BaseDataLoader):
-    """
-    MNIST data loading demo using BaseDataLoader
-    """
+class PascalDataLoader(BaseDataLoader):
+    classes = [
+        'aeroplane',
+        'bicycle',
+        'bird',
+        'boat',
+        'bottle',
+        'bus',
+        'car',
+        'cat',
+        'chair',
+        'cow',
+        'diningtable',
+        'dog',
+        'horse',
+        'motorbike',
+        'person',
+        'pottedplant',
+        'sheep',
+        'sofa',
+        'train',
+        'tvmonitor'
+    ]
+    max_num_objects = 100
+
     def __init__(self, data_dir, batch_size, shuffle=True, validation_split=0.0, num_workers=1, training=True):
         trsfm = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,))
+            transforms.Resize((224, 224))
         ])
+
+        image_set = 'trainval' if training else 'test'
+
         self.data_dir = data_dir
-        self.dataset = datasets.MNIST(self.data_dir, train=training, download=True, transform=trsfm)
-        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers)
+        self.dataset = datasets.VOCDetection(
+            self.data_dir, year='2007', image_set=image_set, download=True, transform=trsfm)
+
+        super().__init__(
+            self.dataset,
+            batch_size,
+            shuffle,
+            validation_split,
+            num_workers,
+            collate_fn=lambda x: collate_fn(
+                x, self.classes, self.max_num_objects)
+        )
