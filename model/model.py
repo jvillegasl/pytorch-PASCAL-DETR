@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torchvision.models import resnet50
 
 from base import BaseModel
@@ -36,23 +35,21 @@ class DETR(BaseModel):
         self.row_embed = nn.Parameter(torch.rand(50, self.hidden_dim // 2))
         self.col_embed = nn.Parameter(torch.rand(50, self.hidden_dim // 2))
 
-    def forward(self, inputs):
-        print(inputs.shape)
+    def forward(self, inputs: torch.Tensor):
         x = self.backbone(inputs)
-        print(x.shape)
         h = self.conv(x)
-        print(h.shape)
 
-        H, W = h.shape[-2:]
+        N, _, H, W = h.shape
 
         pos = torch.cat([
             self.col_embed[:W].unsqueeze(0).repeat(H, 1, 1),
             self.row_embed[:H].unsqueeze(1).repeat(1, W, 1),
         ], dim=-1).flatten(0, 1).unsqueeze(1)
+        pos = pos.repeat(1, N, 1)
 
-        h = self.transformer(pos + h.flatten(2).permute(2,
-                             0, 1), self.query_pos.unsqueeze(1))
-        print(self.query_pos.shape)
-        print(self.query_pos.unsqueeze(1).shape)
-        print(h.shape)
+        h = self.transformer(
+            pos + h.flatten(2).permute(2, 0, 1),
+            self.query_pos.unsqueeze(1).repeat(1, N, 1)
+        ).permute(1, 0, 2)
+
         return self.linear_class(h), self.linear_bbox(h).sigmoid()
