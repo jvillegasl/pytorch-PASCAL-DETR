@@ -43,6 +43,20 @@ def bbox_xywh_to_xyxy(bboxes: torch.Tensor):
     return torch.stack([xmin, ymin, xmax, ymax], dim=-1)
 
 
+def box_cxcywh_to_xyxy(x: torch.Tensor):
+    x_c, y_c, w, h = x.unbind(-1)
+    b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
+         (x_c + 0.5 * w), (y_c + 0.5 * h)]
+    return torch.stack(b, dim=-1)
+
+
+def box_xyxy_to_cxcywh(x: torch.Tensor):
+    x0, y0, x1, y1 = x.unbind(-1)
+    b = [(x0 + x1) / 2, (y0 + y1) / 2,
+         (x1 - x0), (y1 - y0)]
+    return torch.stack(b, dim=-1)
+
+
 def bbox_to_rect(
         bboxes: torch.Tensor,
         labels: torch.Tensor,
@@ -61,7 +75,7 @@ def bbox_to_rect(
     """
 
     objects = torch.cat([bboxes, labels], dim=-1)
-    
+
     W, H = size
 
     rectangles: list[tuple[dict, patches.Rectangle]] = []
@@ -73,7 +87,7 @@ def bbox_to_rect(
         if label >= len(classes):
             continue
         class_name = classes[label]
-        
+
         w, h = xmax - xmin, ymax - ymin
 
         x, y = xmin*W, ymin*H
@@ -81,7 +95,7 @@ def bbox_to_rect(
 
         rect = patches.Rectangle(
             [x, y], w, h, linewidth=1, edgecolor='r', facecolor='none')
-        
+
         text_args = {
             'x': x,
             'y': y,
@@ -89,7 +103,7 @@ def bbox_to_rect(
             'fontsize': 10,
             'bbox': dict(facecolor='r', alpha=0.5)
         }
-        
+
         rectangles.append((text_args, rect))
 
     return rectangles
