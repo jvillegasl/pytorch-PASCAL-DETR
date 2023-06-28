@@ -1,9 +1,7 @@
-import torch
-from torch.utils.data.dataloader import default_collate
 from torchvision import datasets, transforms
 
 from base import BaseDataLoader
-from data_loader.collate_fn import Collator
+from data_loader.collate_fn import PascalCollator
 
 
 class PascalDataLoader(BaseDataLoader):
@@ -49,5 +47,5 @@ class PascalDataLoader(BaseDataLoader):
             shuffle,
             validation_split,
             num_workers,
-            collate_fn=Collator(self.classes, self.max_num_objects)
+            collate_fn=PascalCollator(self.classes)
         )

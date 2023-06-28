@@ -1,65 +1,43 @@
 import torch
 from torch.utils.data.dataloader import default_collate
 
-import time
 
-
-class Collator(object):
-    def __init__(self, classes: list[str], max_num_objects: int):
+class PascalCollator(object):
+    def __init__(self, classes: list[str]):
         self.classes = classes
-        self.max_num_objects = max_num_objects
 
     def __call__(self, batch):
         return collate_fn(batch, self.classes)
 
 
 def collate_fn(batch: list, classes: list[str]):
-    max_num_objects = get_max_num_objects(batch)
-    
     batch = list(map(
         lambda x: [
             x[0],
-            annotation_to_tensor(
-                x[1]['annotation'],
-                classes,
-                max_num_objects
-            )
+            annotation_to_batch_item(x[1], classes)
         ],
         batch
     ))
-    
-    return default_collate(batch)
 
-def get_max_num_objects(batch: list[list]):
-    max_num_objects = max(
-        [len(item[1]['annotation']['object']) for item in batch]
-    )
+    inputs = default_collate([t[0] for t in batch])
+    targets = [t[1] for t in batch]
 
-    return max_num_objects
+    return inputs, targets
 
-def annotation_to_tensor(annotation: dict, classes: list[str],  max_num_objects: int):
+
+def annotation_to_batch_item(annotation_dict: dict, classes: list[str]):
+    annotation = annotation_dict['annotation']
+
     size = annotation['size']
     W, H = int(size['width']), int(size['height'])
 
     objects = annotation['object']
-
     objects = list(map(lambda x: object_to_tensor(x, classes, H, W), objects))
-    objects = objects[:max_num_objects]
 
-    null_object = [
-        torch.tensor([len(classes)]),
-        torch.zeros(4)
-    ]
+    labels_ids = torch.cat([t[0].unsqueeze(0) for t in objects])
+    bboxes = torch.cat([t[1].unsqueeze(0) for t in objects])
 
-    while (len(objects) < max_num_objects):
-        objects.append(null_object)
-
-    out = [
-        torch.cat([t[0].unsqueeze(0) for t in objects]),
-        torch.cat([t[1].unsqueeze(0) for t in objects]),
-    ]
-
-    return out
+    return {'labels': labels_ids, 'bboxes': bboxes}
 
 
 def object_to_tensor(object: dict, classes: list[str], height: int, width: int):
@@ -67,7 +45,7 @@ def object_to_tensor(object: dict, classes: list[str], height: int, width: int):
     bbox = object['bndbox']
 
     class_index = classes.index(class_name)
-    class_index = torch.tensor([class_index])
+    class_index = torch.as_tensor(class_index, dtype=torch.int64)
 
     xmin = int(bbox['xmin'])
     ymin = int(bbox['ymin'])
@@ -78,4 +56,4 @@ def object_to_tensor(object: dict, classes: list[str], height: int, width: int):
             xmax/width, ymax/height]
     bbox = torch.tensor(bbox)
 
-    return [class_index, bbox]
+    return (class_index, bbox)
