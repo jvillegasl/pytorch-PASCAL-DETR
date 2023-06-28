@@ -43,6 +43,7 @@ def mock_bbox(height: int, width: int):
 def mock_image(channels: int, height: int, width: int):
     return torch.rand(channels, height, width)
 
+
 def mock_object(height: int, width: int):
     xmin, ymin, xmax, ymax = mock_bbox(height, width)
 
@@ -59,12 +60,9 @@ def mock_object(height: int, width: int):
     return obj
 
 
-def mock_annotation(image: torch.Tensor, max_num_objects: int):
-    assert max_num_objects > 0, 'max_num_objects must be a positive integer'
-
+def mock_annotation(image: torch.Tensor, num_objects: int):
     C, H, W = image.shape
 
-    num_objects = random.randint(1, max_num_objects)
     objects = [mock_object(H, W) for _ in range(num_objects)]
 
     annotation = {
@@ -84,9 +82,6 @@ def mock_annotation(image: torch.Tensor, max_num_objects: int):
 
 
 def mock_dataset(n_samples: int, chw: tuple[int, int, int], max_num_objects: int):
-    assert n_samples > 0, 'n_samples must be a positive integer'
-    assert max_num_objects > 0, 'max_num_objects must be a positive integer'
-
     C, H, W = chw
 
     dataset = []
@@ -104,4 +99,3 @@ def generate_min_max(x: int):
     min = random.randint(0, x)
     max = random.randint(min, x)
     return min, max
-
