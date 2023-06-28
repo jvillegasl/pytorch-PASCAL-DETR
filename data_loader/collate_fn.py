@@ -1,8 +1,21 @@
 import torch
 from torch.utils.data.dataloader import default_collate
 
+import time
 
-def collate_fn(batch: list, classes: list[str], max_num_objects: int):
+
+class Collator(object):
+    def __init__(self, classes: list[str], max_num_objects: int):
+        self.classes = classes
+        self.max_num_objects = max_num_objects
+
+    def __call__(self, batch):
+        return collate_fn(batch, self.classes)
+
+
+def collate_fn(batch: list, classes: list[str]):
+    max_num_objects = get_max_num_objects(batch)
+    
     batch = list(map(
         lambda x: [
             x[0],
@@ -14,9 +27,15 @@ def collate_fn(batch: list, classes: list[str], max_num_objects: int):
         ],
         batch
     ))
-
+    
     return default_collate(batch)
 
+def get_max_num_objects(batch: list[list]):
+    max_num_objects = max(
+        [len(item[1]['annotation']['object']) for item in batch]
+    )
+
+    return max_num_objects
 
 def annotation_to_tensor(annotation: dict, classes: list[str],  max_num_objects: int):
     size = annotation['size']
@@ -24,7 +43,7 @@ def annotation_to_tensor(annotation: dict, classes: list[str],  max_num_objects:
 
     objects = annotation['object']
 
-    objects = list(map(lambda x: object_to_tensor(x, classes, W, H), objects))
+    objects = list(map(lambda x: object_to_tensor(x, classes, H, W), objects))
     objects = objects[:max_num_objects]
 
     null_object = [
