@@ -1,46 +1,5 @@
-from typing import Literal
 import matplotlib.patches as patches
 import torch
-
-
-def bbox_xyxy_to_xywh(bboxes: torch.Tensor):
-    """
-    Arguments:
-        bbox: Tensor, shape `[..., 4]`
-
-    Returns:
-        Tensor, shape `[..., 4]`
-    """
-
-    xmin, ymin, xmax, ymax = bboxes.unbind(-1)
-
-    width = xmax - xmin
-    height = ymax - ymin
-
-    xcenter = (xmax + xmin) / 2
-    ycenter = (ymax + ymin) / 2
-
-    return torch.stack([xcenter, ycenter, width, height], dim=-1)
-
-
-def bbox_xywh_to_xyxy(bboxes: torch.Tensor):
-    """
-    Arguments:
-        bbox: Tensor, shape `[..., 4]`
-
-    Returns:
-        Tensor, shape `[..., 4]`
-    """
-
-    xcenter, ycenter, width, height = bboxes.unbind(-1)
-
-    xmin = xcenter - width / 2
-    xmax = xcenter + width / 2
-
-    ymin = ycenter - height / 2
-    ymax = ycenter + height / 2
-
-    return torch.stack([xmin, ymin, xmax, ymax], dim=-1)
 
 
 def box_cxcywh_to_xyxy(x: torch.Tensor):
@@ -66,7 +25,7 @@ def bbox_to_rect(
     """
     Arguments:
         bboxes: Tensor, shape `[num_objects, 4]`
-        labels: Tensor, shape `[num_objects, 1]`
+        labels: Tensor, shape `[num_objects]`
         classes: List[str]
         size: Tuple[int, int], format `[width, height]`
 
@@ -74,7 +33,7 @@ def bbox_to_rect(
         rectangles: list[tuple[dict, Rectangle]]
     """
 
-    objects = torch.cat([bboxes, labels], dim=-1)
+    objects = torch.cat([bboxes, labels.unsqueeze(1)], dim=-1)
 
     W, H = size
 
