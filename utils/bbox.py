@@ -17,15 +17,15 @@ def box_xyxy_to_cxcywh(x: torch.Tensor):
 
 
 def bbox_to_rect(
-        bboxes: torch.Tensor,
         labels: torch.Tensor,
+        bboxes: torch.Tensor,
         classes: list[str],
         size: tuple[int, int],
 ):
     """
     Arguments:
-        bboxes: Tensor, shape `[num_objects, 4]`
         labels: Tensor, shape `[num_objects]`
+        bboxes: Tensor, shape `[num_objects, 4]`
         classes: List[str]
         size: Tuple[int, int], format `[width, height]`
 
@@ -43,8 +43,6 @@ def bbox_to_rect(
         xmin, ymin, xmax, ymax, label = obj.tolist()
         label = int(label)
 
-        if label >= len(classes):
-            continue
         class_name = classes[label]
 
         w, h = xmax - xmin, ymax - ymin
