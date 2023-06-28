@@ -36,6 +36,15 @@ class DETR(BaseModel):
         self.col_embed = nn.Parameter(torch.rand(50, self.hidden_dim // 2))
 
     def forward(self, inputs: torch.Tensor):
+        """
+        Arguments:
+            inputs: Tensor, shape `[batch_size, channels, height, width]`
+
+        Returns:
+            outputs: Dict
+               - "pred_logits": Tensor, shape `[batch_size, num_queries, num_classes + 1]`
+               - "pred_bboxes": Tensor, shape `[batch_size, num_queries, 4]`
+        """
         x = self.backbone(inputs)
         h = self.conv(x)
 
@@ -52,4 +61,9 @@ class DETR(BaseModel):
             self.query_pos.unsqueeze(1).repeat(1, N, 1)
         ).permute(1, 0, 2)
 
-        return self.linear_class(h), self.linear_bbox(h).sigmoid()
+        outputs = {
+            'pred_logits': self.linear_class(h),
+            'pred_bboxes': self.linear_bbox(h).sigmoid()
+        }
+
+        return outputs
