@@ -20,6 +20,7 @@ class HungarianMatcher(nn.Module):
 
         assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, "all costs cant be 0"
 
+    @torch.no_grad()
     def forward(
             self,
             outputs: dict[str, torch.Tensor],
