@@ -1,6 +1,10 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torchvision.ops import generalized_box_iou
+
+from model.matcher import HungarianMatcher
+from utils.bbox import box_cxcywh_to_xyxy
 
 
 def nll_loss(output, target):
@@ -10,26 +14,53 @@ def nll_loss(output, target):
 def bipartite_loss(output, target):
     """
     Arguments:
-        output: Tuple(logits, bboxes)
+        outputs: Dict containing:
+           - "pred_logits": Tensor, shape `[batch_size, num_queries, num_classes]`
+           - "pred_bboxes": Tensor, shape `[batch_size, num_queries, 4]`
 
-            -logits: Tensor, shape `[batch_size, max_num_objects, num_classes]`
-            -bboxes: Tensor, shape `[batch_size, max_num_objects, 4]`
-
-        target: Tuple(logits, bboxes)
-
-            -logits: Tensor, shape `[batch_size, max_num_objects]`
-            -bboxes: Tensor, shape `[batch_size, max_num_objects]`
+        targets: List[dict], `len(targets) == batch_size`, each dict contains:
+           - "labels": Tensor, shape `[num_objects_i]`
+           - "bboxes": Tensor, shape `[num_objects_i, 4]`
 
     Returns:
         loss: Tensor, shape `[1]`
     """
+    weight_dict = {
+        'loss_ce': 1.,
+        'loss_bbox': 5.,
+        'loss_giou': 2.,
+    }
+    matcher = HungarianMatcher(cost_class=1, cost_bbox=5, cost_giou=2)
+
+    criterion = Criterion(
+        num_classes=20, weight_dict=weight_dict, matcher=matcher)
+
+    loss = criterion(output, target)
+
+    return loss
 
 
 class Criterion(nn.Module):
+    def __init__(
+            self,
+            num_classes,
+            matcher,
+            weight_dict: dict[str, float],
+            eos_coef: float = 0.1
+    ):
+        """
+        Parameters:
+            num_classes: number of object categories, omitting the special no-object category
+            matcher: module able to compute a matching between targets and proposals
+            weight_dict: dict containing as key the names of the losses and as values their relative weight.
+            eos_coef: relative classification weight applied to the no-object category
+        """
 
-    def __init__(self, num_classes: int = 20, eos_coef: float = 0.1):
         super().__init__()
+
         self.num_classes = num_classes
+        self.matcher = matcher
+        self.weight_dict = weight_dict
         self.eos_coef = eos_coef
 
         empty_weight = torch.ones(num_classes + 1)
@@ -43,6 +74,7 @@ class Criterion(nn.Module):
             indices: list[tuple[torch.Tensor, torch.Tensor]],
     ):
         """Classification loss (NLL)
+
         Arguments:
             outputs: Dict containing:
                - "pred_logits": Tensor, shape `[batch_size, num_queries, num_classes]`
@@ -58,6 +90,7 @@ class Criterion(nn.Module):
 
             For each batch element, it holds:
                 indices[i][0].shape == indices[i][1].shape = min(num_queries, num_objects_i)
+
         Returns:
             losses: Dict containing:
                - "loss_ce": Tensor, shape `[]`
@@ -98,12 +131,15 @@ class Criterion(nn.Module):
 
         return losses
 
+    @torch.no_grad()
     def loss_cardinality(
             self,
             outputs: dict[str, torch.Tensor],
             targets: list[dict[str, torch.Tensor]]
     ):
-        """
+        """Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes.
+        This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
+
         Arguments:
             outputs: Dict containing:
                - "pred_logits": Tensor, shape `[batch_size, num_queries, num_classes]`
@@ -112,15 +148,21 @@ class Criterion(nn.Module):
             targets: List[dict], `len(targets) == batch_size`, each dict contains:
                - "labels": Tensor, shape `[num_objects_i]`
                - "bboxes": Tensor, shape `[num_objects_i, 4]`
+
+        Returns:
+            losses: Dict containing:
+               - "cardinality_error": Tensor, shape `[]`
         """
 
         pred_logits = outputs['pred_logits']
 
         tgt_lengths = torch.as_tensor([len(v['labels']) for v in targets])
+        # [batch_size]
 
         # Count the number of predictions that are NOT 'no-object' (which is the last class)
         pred_labels = pred_logits.argmax(-1)
         # [batch_size, num_queries]
+
         no_object_label = pred_logits.size(-1) - 1
 
         card_pred = (pred_labels != no_object_label).sum(1)
@@ -133,6 +175,97 @@ class Criterion(nn.Module):
         losses = {'cardinality_error': card_err}
 
         return losses
+
+    def loss_bboxes(
+        self,
+        outputs: dict[str, torch.Tensor],
+        targets: list[dict[str, torch.Tensor]],
+        indices: list[tuple[torch.Tensor, torch.Tensor]],
+        num_bboxes
+    ):
+        """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
+
+        Arguments:
+            outputs: Dict containing:
+               - "pred_logits": Tensor, shape `[batch_size, num_queries, num_classes]`
+               - "pred_bboxes": Tensor, shape `[batch_size, num_queries, 4]`
+
+            targets: List[dict], `len(targets) == batch_size`, each dict contains:
+               - "labels": Tensor, shape `[num_objects_i]`
+               - "bboxes": Tensor, shape `[num_objects_i, 4]`
+
+            indices: List[Tuple[Tensor, Tensor]] where `len(indices) == batch_size` and:
+               - indices[i][0]: Indices of the selected predictions (in order)
+               - indices[i][1]: Indices of the corresponding selected targets (in order)
+
+            For each batch element, it holds:
+                indices[i][0].shape == indices[i][1].shape = min(num_queries, num_objects_i)
+
+            num_bboxes: Int.
+
+        Returns:
+            losses: Dict containing:
+               - "loss_bbox": Tensor, shape `[]`
+               - "loss_giou": Tensor, shape `[]`
+        """
+
+        idx = self._get_src_permutation_idx(indices)
+        # Tuple[Tensor[total_num_objects], Tensor[total_num_objects]]
+        # Tuple[batch_coords, pred_coords]
+
+        pred_bboxes = outputs['pred_bboxes'][idx]
+        # predicted bboxes that best matches target bboxes (in order)
+        # [total_num_objects, 4]
+
+        tgt_bboxes = torch.cat([
+            t['bboxes'][i]  # ordered bboxes, [num_objects_i]
+            for t, (_, i) in zip(targets, indices)
+        ], dim=0)
+        # [total_num_objects, 4]
+
+        loss_bbox = F.l1_loss(pred_bboxes, tgt_bboxes, reduction='none')
+
+        losses: dict[str, torch.Tensor] = {}
+        losses['loss_bbox'] = loss_bbox.sum() / num_bboxes
+
+        loss_giou = 1 - torch.diag(generalized_box_iou(
+            box_cxcywh_to_xyxy(pred_bboxes),
+            box_cxcywh_to_xyxy(tgt_bboxes),
+        ))
+
+        losses['loss_giou'] = loss_giou.sum() / num_bboxes
+
+        return losses
+
+    def forward(
+        self,
+        outputs: dict[str, torch.Tensor],
+        targets: list[dict[str, torch.Tensor]],
+    ):
+        """
+        Arguments:
+            outputs: Dict containing:
+               - "pred_logits": Tensor, shape `[batch_size, num_queries, num_classes]`
+               - "pred_bboxes": Tensor, shape `[batch_size, num_queries, 4]`
+
+            targets: List[dict], `len(targets) == batch_size`, each dict contains:
+               - "labels": Tensor, shape `[num_objects_i]`
+               - "bboxes": Tensor, shape `[num_objects_i, 4]`
+        """
+
+        indices = self.matcher(outputs, targets)
+
+        num_bboxes = sum(len(t["labels"]) for t in targets)
+        num_bboxes = torch.as_tensor([num_bboxes], dtype=torch.float)
+
+        losses = {}
+        losses.update(self.loss_labels(outputs, targets, indices))
+        losses.update(self.loss_cardinality(outputs, targets))
+        losses.update(self.loss_bboxes(outputs, targets, indices, num_bboxes))
+
+        loss = sum([self.weight_dict[k] * losses[k] for k in self.weight_dict])
+
+        return loss
 
     def _get_src_permutation_idx(self, indices: list[tuple[torch.Tensor, torch.Tensor]]):
         """
